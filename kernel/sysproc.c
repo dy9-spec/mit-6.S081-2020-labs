@@ -5,6 +5,7 @@
 #include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
+#include "sysinfo.h"
 #include "proc.h"
 
 uint64
@@ -108,3 +109,22 @@ sys_trace(void)
     myproc()->mask = mask_inp;
     return 0;
 }
+
+uint64
+sys_sysinfo(void)
+{
+    struct sysinfo output;
+    uint64 usr_input_addr;
+    if (argaddr(0, &usr_input_addr) < 0) {
+        return -1;
+    }
+    output.freemem = availablememory();
+    output.nproc = proc_num();
+    if (copyout(myproc()->pagetable, usr_input_addr, (char *)&output, sizeof(output)) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+
