@@ -440,3 +440,38 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// print indentation of the table tree
+void _print_indentation(int level) {
+    for (int print_times = 0; print_times < level - 1; print_times++) {
+        printf(".. ");
+    }
+    // the last time should not have tailing whitespace
+    printf("..");
+}
+
+// print the contents of the paging table level by level
+void _vmprint(pagetable_t pagetable, uint level) {
+    // base case
+    if (level > 3) {
+        return;
+    }
+
+    // there are 512 PTEs in a page table
+    for (int i = 0; i < 512; i++) {
+        pte_t cur_pte = pagetable[i];
+        if (cur_pte & PTE_V) {
+            _print_indentation(level);
+            printf("%d: pte %p ", i, cur_pte);
+            uint64 cur_pa = PTE2PA(cur_pte);
+            printf("pa %p\n", cur_pa);
+            _vmprint((pagetable_t)cur_pa, level + 1);
+        }
+    }
+}
+
+// print the contents of the paging table
+void vmprint(pagetable_t pagetable) {
+    printf("page table %p\n", pagetable);
+    _vmprint(pagetable, 1);
+}
