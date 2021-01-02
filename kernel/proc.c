@@ -30,18 +30,7 @@ procinit(void)
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
   }
-  kvminithart();
 }
 
 // Must be called with interrupts disabled,
@@ -121,6 +110,24 @@ found:
     return 0;
   }
 
+  // An empty kernel page table.
+  p->k_pagetable = vmkcreate();
+  if(p->k_pagetable == 0) {
+      freeproc(p);
+      release(&p->lock);
+      return 0;
+  }
+
+  // Allocate a page for the process's kernel stack.
+  // Map it high in memory, followed by an invalid
+  // guard page.
+  char* pa = kalloc();
+  if (pa == 0)
+      panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  uvmkmap(p->k_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -140,7 +147,9 @@ freeproc(struct proc *p)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
   if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+      proc_freepagetable(p->pagetable, p->sz);
+  if(p->k_pagetable)
+      vmkfree(p->k_pagetable, p->kstack);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -473,11 +482,19 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // load the process's kernel page table into the satp registere
+        w_satp(MAKE_SATP(p->k_pagetable));
+        sfence_vma();
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+
+        // switch back to global kernel page table
+        kvminithart();
 
         found = 1;
       }
@@ -486,6 +503,8 @@ scheduler(void)
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
+      // kernel_pagetable should be used when no process is running
+      kvminithart();
       asm volatile("wfi");
     }
 #else
