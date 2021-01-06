@@ -90,6 +90,23 @@ walkaddr(pagetable_t pagetable, uint64 va)
   return pa;
 }
 
+uint64
+kwalkaddr(pagetable_t pagetable, uint64 va)
+{
+    pte_t *pte;
+    uint64 pa;
+
+    if (va >= MAXVA) {
+        return 0;
+    }
+
+    pte = walk(pagetable, va, 0);
+    if (pte == 0)
+        return 0;
+    pa = PTE2PA(*pte);
+    return pa;
+}
+
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
@@ -485,26 +502,6 @@ pagetable_t vmkcreate() {
     // the highest virtual address in the kernel
     uvmkmap(pagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
     return pagetable;
-}
-
-void vmkfree(pagetable_t pagetable, uint64 kstack) {
-    //printf("start free\n");
-    uvmunmap(pagetable, UART0, 1, 0);
-    //printf("UART0 freed\n");
-    uvmunmap(pagetable, VIRTIO0, 1, 0);
-    //printf("VIRTIO0 freed\n");
-    uvmunmap(pagetable, CLINT, size2npages(CLINT, 0x10000) , 0);
-    //printf("CLINT freed\n");
-    uvmunmap(pagetable, PLIC, size2npages(PLIC, 0x400000) , 0);
-    //printf("PLIC freed\n");
-    uvmunmap(pagetable, KERNBASE, size2npages(KERNBASE, (uint64)etext-KERNBASE), 0);
-    //printf("KERNBASE freed\n");
-    uvmunmap(pagetable, (uint64)etext, size2npages((uint64)etext, PHYSTOP-(uint64)etext), 0);
-    //printf("extext freed\n");
-    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-    //printf("TRAMPOLINE freed\n");
-    uvmunmap(pagetable, kstack, 1, 0);
-    //printf("kstack freed\n");
 }
 
 uint64 size2npages(uint64 va, uint64 size) {

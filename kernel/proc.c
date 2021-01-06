@@ -146,10 +146,17 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if (p->kstack) {
+      uint64 pa = kwalkaddr(p->k_pagetable, p->kstack);
+      if (pa == 0)
+          panic("freeproc: kstack");
+      kfree((void*) pa);
+  }
+  p->kstack = 0;
   if(p->pagetable)
       proc_freepagetable(p->pagetable, p->sz);
   if(p->k_pagetable)
-      vmkfree(p->k_pagetable, p->kstack);
+      proc_freekpt(p->k_pagetable);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -202,6 +209,20 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+void proc_freekpt(pagetable_t pagetable) {
+    for(int i = 0; i < 512; i++) {
+        pte_t pte = pagetable[i];
+        if (pte & PTE_V) {
+            pagetable[i] = 0;
+            if ((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+                uint64 child = PTE2PA(pte);
+                proc_freekpt((pagetable_t) child);
+            }
+        }
+    }
+    kfree((void*) pagetable);
 }
 
 // a user program that calls exec("/init")
