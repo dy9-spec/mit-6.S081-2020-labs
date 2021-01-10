@@ -382,23 +382,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+    return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -408,40 +392,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 // print indentation of the table tree
@@ -504,6 +455,23 @@ pagetable_t vmkcreate() {
     return pagetable;
 }
 
-uint64 size2npages(uint64 va, uint64 size) {
-    return (PGROUNDDOWN(va + size - 1) - PGROUNDDOWN(va)) / PGSIZE;
+// copy [start_va, end_va) in user page table into kernel page table
+void u2kvmcopy(pagetable_t k_pgtbl, pagetable_t u_pgtbl, uint64 start_va, uint64 end_va) {
+    pte_t* pte_source;
+    pte_t* pte_dest;
+    uint64 cur_va, pa_source, pte_dest_flags;
+
+    if (end_va < start_va)
+        panic("u2kvmcopy: end_va < start_va");
+
+    start_va = PGROUNDUP(start_va);
+    for (cur_va = start_va; cur_va < end_va; cur_va += PGSIZE) {
+        if ((pte_source = walk(u_pgtbl, cur_va, 0)) == 0)
+            panic("u2kvmcopy: fail to find the addr of pte in u_pgtbl");
+        if ((pte_dest = walk(k_pgtbl, cur_va, 1)) == 0)
+            panic("u2kvmcopy: fail to alloc mem for new pte in k_pgtbl");
+        pte_dest_flags = PTE_FLAGS(*pte_source) & (~PTE_U);
+        pa_source = PTE2PA(*pte_source);
+        *pte_dest = PA2PTE(pa_source) | pte_dest_flags;
+    }
 }
