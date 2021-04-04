@@ -122,6 +122,7 @@ panic(char *s)
   printf(s);
   printf("\n");
   panicked = 1; // freeze uart output from other CPUs
+  backtrace();
   for(;;)
     ;
 }
@@ -131,4 +132,21 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+void backtrace()
+{
+    printf("backtrace:\n");
+    uint64 cur_fp = r_fp();
+    uint64 top_stack = PGROUNDUP(cur_fp);
+    while (cur_fp < top_stack) {
+        /**
+         * cur_fp - constant is of int type
+         * firstly convert that into an address by (uint64 *)
+         * then retrieve the content stored at that address with the operator *
+         * */
+        uint64 cur_res = *(uint64 *)(cur_fp - 8);
+        printf("%p\n", cur_res);
+        cur_fp = *(uint64 *)(cur_fp - 16);
+    }
 }
